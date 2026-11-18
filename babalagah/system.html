@@ -910,7 +910,7 @@
       <div class="inv-footer no-print" style="margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
         <button class="btn-primary" onclick="window.print()">🖨️ طباعة الكشف</button>
         <button class="btn-success" onclick="sendCustomerStatementWhatsApp()">📤 إرسال واتساب</button>
-        <button class="btn-danger" onclick="closeCustomerStatementModal()">❌ إغلاق</button>
+        <button class="btn-danger" onclick="closeCustomerStatementModal()">❌ إلغاء</button>
       </div>
     </div>
   </div>
@@ -947,22 +947,23 @@
         <button class="btn-primary" onclick="printReceiptThermal()">🖨️ طباعة حرارية (POS/احجام)</button>
         <button class="btn-success" onclick="sendReceiptWhatsApp()">📤 مشاركة سند القبض للزبون (واتساب)</button>
         <button class="btn-share" onclick="sendReceiptWhatsAppToManager()">👨‍💼 إرسال السند للمدير (واتساب)</button>
-        <button class="btn-danger" onclick="closeReceiptModal()">❌ إغلاق</button>
+        <button class="btn-danger" onclick="closeReceiptModal()">❌ إلغاء</button>
       </div>
     </div>
   </div>
 
-  <!-- مكتبات واتصال Firebase Realtime Database -->
+  <!-- مكتبات واتصال Firebase (Database & Storage) -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js";
     import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-database.js";
+    import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-storage.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyCLlf2LFKZCl95TNvQcGIICgoagxduEw38",
       authDomain: "mohammad-b9ecf.firebaseapp.com",
       databaseURL: "https://mohammad-b9ecf-default-rtdb.firebaseio.com",
       projectId: "mohammad-b9ecf",
-      storageBucket: "mohammad-b9ecf.firebasestorage.app",
+      storageBucket: "mohammad-b9ecf.appspot.com",
       messagingSenderId: "842024551067",
       appId: "1:842024551067:web:a24832f325509acb0bbc3e",
       measurementId: "G-FHXF9RSD4S"
@@ -970,13 +971,21 @@
 
     const app = initializeApp(firebaseConfig);
     const database = getDatabase(app);
+    const storage = getStorage(app);
 
     window.firebaseDb = database;
     window.dbRef = ref;
     window.dbSet = set;
     window.dbGet = get;
+    window.dbOnValue = onValue;
 
-    console.log("تم الاتصال بـ Firebase Realtime Database بنجاح!");
+    window.firebaseStorage = storage;
+    window.fbStorageRef = storageRef;
+    window.uploadBytes = uploadBytes;
+    window.getDownloadURL = getDownloadURL;
+
+    console.log("تم الاتصال بقاعدة البيانات وسحابية الصور في Firebase بنجاح!");
+    initCloudSync();
   </script>
 
   <script>
@@ -999,27 +1008,8 @@
         { id: 2, name: "محمد صلاح", role: "delegate", username: "del1", phone: "07711111111", online: false, tracking: false, lastGps: "", routes: [], assignedRegions: "حي الزهور، حي المظلوم" },
         { id: 3, name: "سائق التوصيل 1", role: "driver", username: "drv1", phone: "07722222222", online: false, tracking: false, lastGps: "", routes: [] }
       ],
-      products: [
-        { 
-          id: 101, 
-          name: "جبس باب الآغا", 
-          desc: "كارتون 24 قطعة", 
-          price: 12000, 
-          totalStock: 50, 
-          flavors: [
-            { name: "جبنة شيدر", stock: 25 },
-            { name: "فلفل حار", stock: 25 }
-          ], 
-          commission: 500, 
-          minQtyDiscount: 10, 
-          discountPerCarton: 500, 
-          image: "", 
-          active: true 
-        }
-      ],
-      customers: [
-        { id: 501, name: "أحمد العبيدي", storeName: "أسواق الهدى", phone: "+9647800000000", address: "الموصل - حي الزهور", gps: "36.34,43.13" }
-      ],
+      products: [],
+      customers: [],
       orders: [],
       returns: [],
       receipts: [],
@@ -1053,19 +1043,50 @@
       }
     }
 
+    function initCloudSync() {
+      if (window.firebaseDb && window.dbRef && window.dbOnValue) {
+        const dbReference = window.dbRef(window.firebaseDb, 'system_data');
+        window.dbOnValue(dbReference, (snapshot) => {
+          const cloudData = snapshot.val();
+          if (cloudData) {
+            state.company = cloudData.company || state.company;
+            state.users = cloudData.users || state.users;
+            state.products = cloudData.products || [];
+            state.customers = cloudData.customers || [];
+            state.orders = cloudData.orders || [];
+            state.returns = cloudData.returns || [];
+            state.receipts = cloudData.receipts || [];
+            state.emptyVisits = cloudData.emptyVisits || [];
+            state.activities = cloudData.activities || [];
+            state.notifications = cloudData.notifications || [];
+            
+            localStorage.setItem('app_system_data', JSON.stringify(state));
+            applySystemBranding();
+            
+            if (state.currentUser) {
+              if (state.currentUser.role === 'admin') renderAdminView();
+              else if (state.currentUser.role === 'delegate') renderDelegateView();
+              else if (state.currentUser.role === 'driver') renderDriverView();
+              renderNotificationsUI();
+            }
+          }
+        });
+      }
+    }
+
     function loadStorage() {
       const saved = localStorage.getItem('app_system_data');
       if (saved) {
         const parsed = JSON.parse(saved);
         state.company = parsed.company || state.company;
         state.users = parsed.users || state.users;
-        state.products = parsed.products || state.products;
-        state.customers = parsed.customers || state.customers;
-        state.orders = parsed.orders || state.orders;
+        state.products = parsed.products || [];
+        state.customers = parsed.customers || [];
+        state.orders = parsed.orders || [];
         state.returns = parsed.returns || [];
         state.receipts = parsed.receipts || [];
         state.emptyVisits = parsed.emptyVisits || [];
-        state.activities = parsed.activities || state.activities;
+        state.activities = parsed.activities || [];
         state.notifications = parsed.notifications || [];
       }
       applySystemBranding();
@@ -1073,6 +1094,16 @@
 
     function saveData() {
       localStorage.setItem('app_system_data', JSON.stringify(state));
+
+      if (window.firebaseDb && window.dbRef && window.dbSet) {
+        window.dbSet(window.dbRef(window.firebaseDb, 'system_data'), state)
+          .then(() => {
+            console.log("تم مزامنة البيانات سحابياً بنجاح!");
+          })
+          .catch((error) => {
+            console.error("خطأ في المزامنة السحابية: ", error);
+          });
+      }
     }
 
     function applySystemBranding() {
@@ -1080,6 +1111,20 @@
       document.getElementById('pageMainTitle').innerText = name;
       document.getElementById('loginSystemTitle').innerText = name;
       document.getElementById('sidebarSignature').innerText = `إشراف وتنفيذ وتصميم البرنامج: ${state.company.programCredit || "المدير العام"}`;
+    }
+
+    async function uploadImageToFirebase(file, folderName = "images") {
+      if (!file) return "";
+      try {
+        const filename = `${folderName}/${Date.now()}_${file.name}`;
+        const fileRef = window.fbStorageRef(window.firebaseStorage, filename);
+        const snapshot = await window.uploadBytes(fileRef, file);
+        const downloadUrl = await window.getDownloadURL(snapshot.ref);
+        return downloadUrl;
+      } catch (error) {
+        console.error("خطأ في رفع الصورة إلى Firebase Storage:", error);
+        return "";
+      }
     }
 
     function switchRoleTab(role) {
@@ -1986,7 +2031,7 @@
       renderAdminView();
     }
 
-    function saveCompanySettings(e) {
+    async function saveCompanySettings(e) {
       e.preventDefault();
       state.company.name = document.getElementById('settingSystemName').value;
       state.company.companyName = document.getElementById('settingCompanyName').value;
@@ -1999,19 +2044,13 @@
 
       const fileInput = document.getElementById('settingLogoFile');
       if (fileInput.files && fileInput.files[0]) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-          state.company.logoUrl = e.target.result;
-          saveData();
-          alert("تم الحفظ.");
-          setupDashboardView();
-        };
-        reader.readAsDataURL(fileInput.files[0]);
-      } else {
-        saveData();
-        alert("تم الحفظ.");
-        setupDashboardView();
+        let logoUrl = await uploadImageToFirebase(fileInput.files[0], "company_logos");
+        if(logoUrl) state.company.logoUrl = logoUrl;
       }
+      
+      saveData();
+      alert("تم حفظ الإعدادات سحابياً بنجاح.");
+      setupDashboardView();
     }
 
     function updateDelegatePhone(e) {
@@ -2022,7 +2061,7 @@
       setupDashboardView();
     }
 
-    function addProduct(e) {
+    async function addProduct(e) {
       e.preventDefault();
       const fileInput = document.getElementById('prodImageFile');
       let flavors = [];
@@ -2032,6 +2071,11 @@
         let fQty = parseInt(row.querySelector('.flav-qty').value) || 0;
         if(fName) { flavors.push({ name: fName, stock: fQty }); totalCalcStock += fQty; }
       });
+
+      let imageUrl = "";
+      if (fileInput.files && fileInput.files[0]) {
+        imageUrl = await uploadImageToFirebase(fileInput.files[0], "products");
+      }
 
       const newP = {
         id: Date.now(),
@@ -2043,26 +2087,14 @@
         commission: parseFloat(document.getElementById('prodCommission').value),
         minQtyDiscount: parseInt(document.getElementById('discountMinQty').value),
         discountPerCarton: parseFloat(document.getElementById('discountAmountPerCarton').value),
-        image: "",
+        image: imageUrl,
         active: true
       };
 
-      if (fileInput.files && fileInput.files[0]) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-          newP.image = e.target.result;
-          state.products.push(newP);
-          saveData();
-          renderAdminView();
-          alert("تمت الإضافة.");
-        };
-        reader.readAsDataURL(fileInput.files[0]);
-      } else {
-        state.products.push(newP);
-        saveData();
-        renderAdminView();
-        alert("تمت الإضافة.");
-      }
+      state.products.push(newP);
+      saveData();
+      renderAdminView();
+      alert("تمت إضافة المنتج وصورته سحابياً بنجاح.");
     }
 
     function toggleProduct(id) {
@@ -2897,16 +2929,15 @@
       });
     }
 
-    function uploadDriverProofImage(orderId, inputElem) {
+    async function uploadDriverProofImage(orderId, inputElem) {
       if(inputElem.files && inputElem.files[0]) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-          state.orders.find(o => o.id === orderId).proofImage = e.target.result;
+        let proofUrl = await uploadImageToFirebase(inputElem.files[0], "driver_proofs");
+        if(proofUrl) {
+          state.orders.find(o => o.id === orderId).proofImage = proofUrl;
           saveData();
-          alert("تم رفع الصورة وإرفاقها.");
+          alert("تم رفع صورة الإثبات سحابياً بنجاح.");
           renderDriverView();
-        };
-        reader.readAsDataURL(inputElem.files[0]);
+        }
       }
     }
 
