@@ -393,7 +393,6 @@
             <input type="text" id="prodName" placeholder="اسم المنتج" required>
             <input type="text" id="prodDesc" placeholder="الوصف" required>
             <input type="number" id="prodPrice" placeholder="سعر الكارتون" required>
-            <input type="number" id="prodTotalStock" placeholder="عدد الكارتون الكلي" required>
             <input type="number" id="prodCommission" placeholder="عمولة الكارتون" required>
             <input type="number" id="discountMinQty" placeholder="العدد الأدنى للخصم" required>
             <input type="number" id="discountAmountPerCarton" placeholder="مبلغ الخصم لكل كارتون" required>
@@ -403,7 +402,7 @@
             </div>
             
             <div style="grid-column: 1 / -1; border-top: 1px dashed #cbd5e1; padding-top: 10px; margin-top: 5px;">
-              <label><strong>تجزئة النكهات:</strong></label>
+              <label><strong>تجزئة النكهات (سيتم حساب المخزن الكلي تلقائياً من مجموع كراتين النكهات):</strong></label>
               <div id="flavorsContainer" style="display: flex; flex-direction: column; gap: 8px; margin-top: 5px;">
                 <div class="flavor-row" style="display: flex; gap: 10px;">
                   <input type="text" placeholder="اسم النكهة" class="flav-name" required>
@@ -413,7 +412,7 @@
               <button type="button" class="btn-secondary" onclick="addFlavorRow()" style="margin-top: 8px; font-size: 0.85rem;">+ إضافة نكهة</button>
             </div>
 
-            <button type="submit" class="btn-success full-width" style="grid-column: 1 / -1; margin-top: 10px;">حفظ المنتج بالمخزن</button>
+            <button type="submit" class="btn-success full-width" style="grid-column: 1 / -1; margin-top: 15px; padding: 12px; font-size: 1rem;">💾 حفظ المنتج بالمخزن</button>
           </form>
           
           <table class="data-table">
@@ -2061,40 +2060,80 @@
       setupDashboardView();
     }
 
+    // دالة إضافة المنتج المُحسنة والمحدثة لحل مشكلة عدم الاستجابة
     async function addProduct(e) {
       e.preventDefault();
+      
+      const prodName = document.getElementById('prodName').value.trim();
+      const prodDesc = document.getElementById('prodDesc').value.trim();
+      const prodPrice = parseFloat(document.getElementById('prodPrice').value) || 0;
+      const prodCommission = parseFloat(document.getElementById('prodCommission').value) || 0;
+      const discountMinQty = parseInt(document.getElementById('discountMinQty').value) || 0;
+      const discountAmountPerCarton = parseFloat(document.getElementById('discountAmountPerCarton').value) || 0;
       const fileInput = document.getElementById('prodImageFile');
+
+      if (!prodName) {
+        alert("الرجاء إدخال اسم المنتج.");
+        return;
+      }
+
       let flavors = [];
       let totalCalcStock = 0;
+      
       document.querySelectorAll('.flavor-row').forEach(row => {
-        let fName = row.querySelector('.flav-name').value.trim();
-        let fQty = parseInt(row.querySelector('.flav-qty').value) || 0;
-        if(fName) { flavors.push({ name: fName, stock: fQty }); totalCalcStock += fQty; }
+        let fNameInput = row.querySelector('.flav-name');
+        let fQtyInput = row.querySelector('.flav-qty');
+        if (fNameInput && fQtyInput) {
+          let fName = fNameInput.value.trim();
+          let fQty = parseInt(fQtyInput.value) || 0;
+          if (fName) {
+            flavors.push({ name: fName, stock: fQty });
+            totalCalcStock += fQty;
+          }
+        }
       });
+
+      if (flavors.length === 0) {
+        alert("الرجاء إضافة نكهة واحدة على الأقل مع تحديد كميتها.");
+        return;
+      }
 
       let imageUrl = "";
       if (fileInput.files && fileInput.files[0]) {
+        alert("جاري رفع صورة المنتج إلى سحابة Firebase، يرجى الانتظار قليلاً...");
         imageUrl = await uploadImageToFirebase(fileInput.files[0], "products");
       }
 
       const newP = {
         id: Date.now(),
-        name: document.getElementById('prodName').value,
-        desc: document.getElementById('prodDesc').value,
-        price: parseFloat(document.getElementById('prodPrice').value),
+        name: prodName,
+        desc: prodDesc,
+        price: prodPrice,
         totalStock: totalCalcStock,
         flavors: flavors,
-        commission: parseFloat(document.getElementById('prodCommission').value),
-        minQtyDiscount: parseInt(document.getElementById('discountMinQty').value),
-        discountPerCarton: parseFloat(document.getElementById('discountAmountPerCarton').value),
+        commission: prodCommission,
+        minQtyDiscount: discountMinQty,
+        discountPerCarton: discountAmountPerCarton,
         image: imageUrl,
         active: true
       };
 
+      if (!state.products) state.products = [];
       state.products.push(newP);
       saveData();
       renderAdminView();
-      alert("تمت إضافة المنتج وصورته سحابياً بنجاح.");
+
+      // إعادة تعيين حقول النموذج بعد الحفظ بنجاح
+      e.target.reset();
+      // إعادة صف نكهة افتراضي واحد
+      document.getElementById('flavorsContainer').innerHTML = `
+        <div class="flavor-row" style="display: flex; gap: 10px;">
+          <input type="text" placeholder="اسم النكهة" class="flav-name" required>
+          <input type="number" placeholder="عدد الكراتين" class="flav-qty" required>
+        </div>
+      `;
+
+      alert("✅ تمت إضافة المنتج وحفظه سحابياً في النظام بنجاح!");
     }
 
     function toggleProduct(id) {
